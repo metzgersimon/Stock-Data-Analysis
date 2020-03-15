@@ -1,0 +1,351 @@
+---
+title: "R_Aufgabe_Simon_Metzger "
+output: html_notebook
+---
+
+## Laden der benötigten Packages
+```{r message=FALSE}
+library(ggplot2)
+library(zoo)
+library(data.table)
+library(plotly)
+library(xts)
+library(tidyquant)
+```
+
+## Bearbeiten der Datensätze
+
+#### Einlesen der Daten der beiden Indizes als csv-Dateien
+```{r}
+dax_data = read.csv('C:\\Users\\Simon\\Desktop\\Dax.csv', stringsAsFactors = FALSE)
+sp500_data = read.csv('C:\\Users\\Simon\\Desktop\\S&P500.csv', stringsAsFactors = FALSE)
+```
+
+#### Löschen der Adj. Close Spalten
+```{r}
+dax_data = dax_data[,-c(6)]
+sp500_data = sp500_data[,-c(6)]
+```
+
+#### Date-Spalte als Index setzen und Löschen der Spalte(da sie nach dem Setzen als Index noch vorhanden ist)
+```{r}
+rownames(dax_data) = dax_data$Date
+dax_data$Date = NULL
+
+rownames(sp500_data) = sp500_data$Date
+sp500_data$Date = NULL
+
+```
+
+#### Entfernen von fehlenden Werten im Dax-Datensatz
+```{r}
+#spezifizieren der Zeilen, die geändert werden sollen
+column_values = 1:5
+#alle Einträge, die keine null-Einträge sind
+dax_data = dax_data[!dax_data[column_values] == "null",]
+#Umwandeln der Faktor-Werte zu numerischen Werten (fehlende Werte NA)
+dax_data[column_values] = lapply(dax_data[column_values], as.numeric)
+#Entfernen der NA-Werte
+dax_data = na.omit(dax_data)
+```
+
+#### Reduzieren beider Datensätze auf Daten(Tage), welche in beiden Datensätzen vorkommen, um diese problemlos vergleichen zu können
+```{r}
+#überprüfen, ob der Index des Dax-Datensatzes auch als Index im S&P500-Datensatz auftaucht, falls ja, behalte diese Index-Zeile, falls nicht, verwerfe sie
+dax_data = dax_data[which(rownames(dax_data) %in% rownames(sp500_data)),]
+
+#analog mit S&P500
+sp500_data = sp500_data[which(rownames(sp500_data) %in% rownames(dax_data)),]
+```
+
+#### Index wird wieder auf Integer gesetzt und Date-Werte als Spalte eingefügt und von "rn" wieder in Date umbenannt.
+```{r}
+#Index wird erneut als Spalte eingefügt (Name "rn")
+setDT(dax_data, keep.rownames = TRUE)
+setDT(sp500_data, keep.rownames = TRUE)
+
+#Umbenennen der "rn"-Spalten in "Date"
+names(dax_data)[1] = "Date"
+names(sp500_data)[1] = "Date"
+tail(dax_data)
+tail(sp500_data)
+```
+Nun beinhalten beide Datensätze 489 Zeilen(Tage) mit 6 Spalten (Date, Open, High, Low, Close und Volume), fehlende Werte sind entfernt und es existieren nur Daten, an denen beide Datensätze Werte besitzen. 
+
+
+#### Da die Daten in der Date-Spalte nicht als Date-Objekte vorliegen, müssen diese von chr-Objekten zu Date-Objekten umgewandelt werden
+```{r}
+dax_data$Date = as.Date(dax_data$Date)
+sp500_data$Date = as.Date(sp500_data$Date)
+```
+
+## Datenanalyse
+
+#### Plotten der Indizes-Kursverläufe
+```{r out.width=c("50%","50%"),fig.show="hold"}
+ggplot() +
+  geom_line(data = dax_data, aes(x = dax_data$Date, y= dax_data$Close, color = "darkcyan")) +xlab("Date") + ylab("Close") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months") +
+  scale_colour_manual(values="darkcyan")
+ggplot() +
+  geom_line(data = sp500_data, aes(x = sp500_data$Date, y= sp500_data$Close, color = "red")) +
+  xlab("Date") + ylab("Close") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months")+
+  scale_colour_manual(values="red")
+```
+Es lässt sich beobachten, dass beide Indizes zu Beginn des Jahres 2018 und am Ende 2018 einen starken Kurseinbruch hatten.
+
+
+#### Berechnen von Candlestick-Plots für die beiden Indizes mit plotly
+```{r}
+#Dax Plot
+dax_data %>%
+  plot_ly(x = ~Date, type = "candlestick",
+          open = ~dax_data$Open, close = ~dax_data$Close,
+          high = ~dax_data$High, low = ~dax_data$Low) %>%
+  layout(title = "Dax Candlestick Chart",
+         xaxis = list(rangeslider = list(visible = F)))
+#S&P500 Plot
+sp500_data %>%
+  plot_ly(x = ~Date,type = "candlestick",
+          open = ~sp500_data$Open, close = ~sp500_data$Close,
+          high = ~sp500_data$High, low = ~sp500_data$Low) %>%
+  layout(title = "S&P500 Candlestick Chart",
+         xaxis = list(rangeslider = list(visible = F)))
+```
+Auch hier sieht man erneut zu Beginn, bzw. am Ende des Jahres 2018 einen großen Kurssturz. Während dies beim Dax zu Beginn 2018 ein Kurssturz ohne wirkliche Korrektur ist, werden beim S&P500 auch in diesem Zeitraum teils noch positive Renditen eingefahren. Ende 2018 werden wieder große Kursverluste verbucht, jedoch werden diese beim Dax durch Tagesgewinne abgeschwächt.Beim S&P500 hingegen werden kurz vor Weihnachten (wahrscheinlich auch dem Volumen geschuldet) starke Kursverluste ohne nennenswerte Korrektur eingefahren.
+
+
+#### Täglich gehandeltes Volumen
+```{r}
+#Dax-Plot
+ggplot() +
+  geom_line(data = dax_data, aes(x = dax_data$Date, y= dax_data$Volume, color = "darkcyan")) +xlab("Date") + ylab("Daily Volume") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months") +
+  scale_colour_manual(values="darkcyan")
+#S&P500-Plot
+ggplot() +
+  geom_line(data = sp500_data, aes(x = sp500_data$Date, y= sp500_data$Volume, color = "red")) +xlab("Date") + ylab("Daily Volume") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months") +
+  scale_colour_manual(values="red")
+
+```
+Es ist interessant zu beobachten, dass dort, wo größere Kursverluste zu bemerken sind (Anfang und Ende 2018) nicht, wie zuerst vermutet, deutlich weniger Volumen gehandelt wird, sondern sogar deutlich mehr als gewöhnlich.
+Dementsprechend ist das geringe Volumen nicht mehr, bzw. noch nicht auf die Weihnachts-Feiertage zurückzuführen.
+Es kann also vermutet werden, dass diese Kursverluste aufgrund von Ängsten der Anleger entstanden sind.
+
+#### Berechnung der Schlüsselwerte der Daten
+```{r}
+summary(dax_data)
+```
+
+
+```{r}
+summary(sp500_data)
+```
+
+#### Berechnung der insgesamt umgesetzten Geldmengen ("falsche" Marktkapitalisierung)
+```{r}
+dax_data$Total_Traded = dax_data$Close*dax_data$Volume
+sp500_data$Total_Traded = sp500_data$Close*sp500_data$Volume
+
+head(dax_data)
+head(sp500_data)
+```
+Wie man sieht, ist nun eine neue Spalte Total_Traded hinzugefügt worden, welche die an jenem Tag umgesetzte Geldmenge darstellt, also quasi die "Marktkapitalisierung" für diesen Tag.
+
+##### Berechnung der gleitenden Durchschnitte
+```{r}
+#Dax-Plot
+
+#gleitender Durchschnitt über 20 Tage
+dax_data_ma20 = rollmean(dax_data$Close, 20, fill = NA)
+#gleitender Durchschnitt über 50 Tage
+dax_data_ma50 = rollmean(dax_data$Close, 50, fill = NA)
+#Erstellen neuer Spalten für die gleitenden Durchschnitte und deren Zuordnung
+dax_data$Ma20 = dax_data_ma20
+dax_data$Ma50 = dax_data_ma50
+#Plotten der Dax-Kurve und der gleitenden Durchschnitte
+ggplot(dax_data, aes(dax_data$Date)) +
+  geom_line(aes(y=dax_data$Close, color = "Dax")) +
+  geom_line(aes(y= dax_data$Ma20, color = "Ma20")) +
+  geom_line(aes(y= dax_data$Ma50, color = "Ma50")) +
+  labs(colour = "Index")+
+  xlab("Date") + ylab("Price") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months") + scale_colour_manual(values=c("darkcyan","purple", "red"))
+
+
+#S&P500-Plot
+
+#gleitender Durchschnitt über 20 Tage
+sp500_data_ma20 = rollmean(sp500_data$Close, 20, fill = NA)
+#gleitender Durchschnitt über 50 Tage
+sp500_data_ma50 = rollmean(sp500_data$Close, 50, fill = NA)
+#Erstellen neuer Spalten für die gleitenden Durchschnitte und deren Zuordnung
+sp500_data$Ma20 = sp500_data_ma20
+sp500_data$Ma50 = sp500_data_ma50
+#Plotten der S&P500-Kurve und der gleitenden Durchschnitte
+ggplot(sp500_data, aes(sp500_data$Date)) +
+  geom_line(aes(y=sp500_data$Close, color = "S&P500")) +
+  geom_line(aes(y= sp500_data$Ma20, color = "Ma20")) +
+  geom_line(aes(y= sp500_data$Ma50, color = "Ma50")) +
+  labs(colour = "Index")+
+  xlab("Date") + ylab("Price") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months")+scale_colour_manual(values=c("black","green", "red"))
+```
+
+##### Berechnung der täglichen Returns
+```{r}
+dax_data$Daily_return = c(-diff(dax_data$Close)/dax_data$Close[-1]*100, NA)
+sp500_data$Daily_return = c(-diff(sp500_data$Close)/sp500_data$Close[-1]*100, NA)
+
+tail(dax_data)
+tail(sp500_data)
+```
+Jetzt haben wir drei neue Spalten, zwei für die gleitenden Durchschnitte (Ma20 für die letzten 20 Tage und Ma50 für die letzten 50 Tage) und die tägliche Rendite. 
+##### Plotten der täglichen Renditen
+```{r}
+#tägliche Dax-Renditen
+
+ggplot() +
+  geom_line(data = dax_data, aes(x = dax_data$Date, y= dax_data$Daily_return, color = "Dax")) +
+  geom_line(data = sp500_data, aes(x = sp500_data$Date, y= sp500_data$Daily_return, color = "S&P500")) +
+  labs(colour = "Index")+
+  xlab("Date") + ylab("Daily Return") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months")+
+  scale_colour_manual(values=c("darkcyan","red"))
+```
+###### Erwartungswert und Standardabweichung
+```{r}
+mean(dax_data$Daily_return, na.rm = TRUE)
+mean(sp500_data$Daily_return, na.rm = TRUE)
+var(dax_data$Daily_return, na.rm = TRUE)
+var(sp500_data$Daily_return, na.rm = TRUE)
+sd(dax_data$Daily_return, na.rm = TRUE)
+sd(sp500_data$Daily_return, na.rm = TRUE)
+
+```
+
+Scatter-Plot
+```{r}
+plot(dax_data$Daily_return, sp500_data$Daily_return, main = "Daily Returns", xlab = "Dax Daily Return", ylab= "S&P500 Daily Return",pch = 19, frame = FALSE)
+abline(lm(sp500_data$Daily_return~dax_data$Daily_return))
+```
+Der Scatter-Plot lässt zwar einen Zusammenhang vermuten, jedoch scheint dieser nicht besonders ausgesprägt zu sein. Um dies zu belegen, berechnen wir den Korrelationskoeffizienten:
+
+```{r}
+cor(dax_data$Daily_return, sp500_data$Daily_return, use = "complete.obs")
+```
+Wie bereits am Scatter-Plot zu erkennen ist, handelt es sich lediglich um einen geringen positiven Zusammenhang zwischen den täglichen Renditen der beiden Indizes.
+
+###### Nun schauen wir uns an, wie die täglichen Renditen verteilt sind, hierzu verwenden wir ein Histogramm mit einer Dichte-Kurve:
+```{r}
+#Dax-Plot
+ggplot(dax_data, aes(Daily_return))+
+  geom_histogram(aes(y = ..density..), color = "black")+
+  geom_density(color = "red")
+
+#S&P500-Plot
+ggplot(sp500_data, aes(Daily_return))+
+  geom_histogram(aes(y = ..density..), color = "blue")+
+  geom_density(color = "green")
+```
+Man erkennt bei beiden Indizes bei den täglichen Renditen eine annährende Normalverteilung.
+
+###### Betrachten wir nun die Abschlusskurse der beiden Indizes
+Wir überprüfen, ob diese Kurse einen Zusammenhang haben:
+Scatter-Plot
+```{r}
+plot(dax_data$Close, sp500_data$Close, main = "Close Prices", xlab = "Dax Close", ylab= "S&P500 Close",pch = 19, frame = FALSE)
+abline(lm(sp500_data$Close~dax_data$Close))
+```
+Der Plot lässt keinen stichhaltigen positiven (oder negativen) Zusammenhang (zumindest keinen linearen) vermuten, um dies zu belegen berechnen wir den Korrelationskoffizienten:
+```{r}
+cor(dax_data$Close, sp500_data$Close, use = "complete.obs")
+```
+Wie vermutet lässt sich nur ein sehr geringer positiver Zusammenhang feststellen, demnach führen hohe, bzw. tiefe Kurse des einen Indexes nicht zwangsläufig zu hohen, bzw. tiefen Kursen des anderen Indexes.
+
+Berechnung der kumulativen Renditen
+```{r}
+dax_data$Cumulative_return = -1*cumsum(dax_data$Daily_return)
+sp500_data$Cumulative_return = -1*cumsum(sp500_data$Daily_return)
+str(dax_data)
+str(sp500_data)
+#Plotten der kumulativen Renditen
+ggplot() +
+  geom_line(data = dax_data, aes(x = dax_data$Date, y=dax_data$Cumulative_return, color = "Dax")) +
+  geom_line(data = sp500_data, aes(x = sp500_data$Date, y= sp500_data$Cumulative_return, color = "S&P500")) +
+  labs(labels = "Index") +
+  xlab("Date") + ylab("Cumulative Return") +scale_x_date(date_labels = "%m/%y", date_breaks = "3 months") + scale_colour_manual(values= c("darkcyan", "red"))
+```
+
+### Umwandlung der Daten von täglichen zu wöchentlichen Werten
+
+Erstellen eines xts-Objekts für jeden Datensatz um mit den wöchentlichen Daten arbeiten zu können.
+```{r}
+#Funktion für Umwandlung von Tages- zu Wochen-Daten
+daily_to_weekly_data = function(x){
+  core = coredata(x)
+  c(Open = first(Op(core)),
+    High = max(Hi(core)),
+    Low = min(Lo(core)),
+    Close = last(core[,"Close"]),
+    Volume = sum(Vo(core)),
+    Total_Traded = sum(core[,"Total_Traded"]))
+}
+
+#Erstellen des Dax-Datensatzes
+dax_weekly = apply.weekly(dax_data, FUN = "daily_to_weekly_data")
+
+#dax_weekly$Date = row.names(dax_weekly)
+
+#Erstellen des S&P500-Datensatzes
+sp500_weekly = apply.weekly(sp500_data, FUN = "daily_to_weekly_data")
+```
+
+##### Berechnen der wöchentlichen Renditen mit Hilfe der xts-Objekte
+```{r}
+dax_weekly$Weekly_Return = c(-diff(dax_weekly$Close)/dax_weekly$Close[-1]*100)
+
+sp500_weekly$Weekly_Return = c(-diff(sp500_weekly$Close)/sp500_weekly$Close[-1]*100)
+
+```
+
+Umwandeln der xts-Objekte zurück in Data Frames
+```{r}
+dax_weekly = fortify(dax_weekly)
+sp500_weekly = fortify(sp500_weekly)
+```
+
+Index-Spalte (mit Date-Objekten) in Date umbenennen
+```{r}
+dax_weekly = dax_weekly %>%
+  rename(Date = Index)
+
+sp500_weekly = sp500_weekly %>%
+  rename(Date = Index)
+```
+
+Aussehen der Datensätze nach Umwandlung und Berechnung:
+```{r}
+head(dax_weekly)
+head(sp500_weekly)
+```
+
+
+Plotten der wöchentlichen Renditen der beiden Indizes (x-Ticks alle zehn Wochen)
+```{r}
+ggplot() +
+  geom_line(data = dax_weekly, aes(x = dax_weekly$Date, y= dax_weekly$Weekly_Return, color = "Dax")) +
+  geom_line(data = sp500_weekly, aes(x = sp500_weekly$Date, y= sp500_weekly$Weekly_Return, color = "S&P500")) +
+  labs(colour = "Index")+
+  xlab("Date") + ylab("Weekly Return") +scale_x_date(date_labels = "%W/%y", date_breaks = "10 weeks")+
+  scale_colour_manual(values=c("darkcyan","red"))
+```
+Plot stellt die Wöchentliche Rendite in % der beiden Indizes dar. Die x-Achse plottet die Zeit im Format Kalenderwoche/Jahr.
+Es lässt sich eine positive Korrelation vermuten.
+
+Wir überprüfen dies mit Hilfe eines Scatter-Plots
+```{r}
+plot(dax_weekly$Weekly_Return, sp500_weekly$Weekly_Return, main = "Weekly Returns", xlab = "Dax Weekly Return", ylab= "S&P500 Weekly Return",pch = 19, frame = FALSE)
+abline(lm(sp500_weekly$Weekly_Return~dax_weekly$Weekly_Return))
+```
+
+```{r}
+cor(dax_weekly$Weekly_Return, sp500_weekly$Weekly_Return, use = "complete.obs")
+```
+Sowohl am Plot als auch am Korrelationskoeffizienten lässt sich eine starke positive Korrelation ausmachen. Demnach sprechen hohe/niedrige wöchentliche Renditen des einen Indizes auch für hohe/niedrige wöchentliche Renditen des anderen Indizes.
+
